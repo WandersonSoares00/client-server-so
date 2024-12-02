@@ -5,14 +5,14 @@
 #include <stddef.h>
 
 typedef struct {
-    void **data;
-    int curr_size;
-    int last_data;
-    int first_data;
-    void (*dealloc_member)(void*);
+  void **data;
+  int curr_size;
+  int last_data;
+  int first_data;
+  void (*dealloc_member)(void *);
 } Darray;
 
-Darray *darray_init(unsigned int initial_size, void (*dealloc_member)(void*));
+Darray *darray_init(unsigned int initial_size, void (*dealloc_member)(void *));
 
 void *darray_get(int i, Darray *arr);
 
