@@ -7,7 +7,7 @@ int ordered_insert(Client *client, Darray *clients_arr) {
 
     int i = clients_arr->last_data;
     Client *curr = clients_arr->data[i];
-    for (; (i >= 0 && curr->priority > client->priority); i--, curr = clients_arr->data[i]) {
+    for (; (i >= 0 && curr->priority < client->priority); i--, curr = clients_arr->data[i]) {
         clients_arr->data[i + 1] = clients_arr->data[i];
     }
 
