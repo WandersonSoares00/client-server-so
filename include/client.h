@@ -2,6 +2,8 @@
 
 #include <unistd.h>
 #include <time.h>
+#include "darray.h"
+#include <pthread.h>
 
 typedef struct {
     pid_t pid;
@@ -9,4 +11,12 @@ typedef struct {
     int priority;
     time_t t_service;
 } Client;
+
+typedef struct {
+    Darray *data;
+    pthread_mutex_t mutex;
+    pthread_cond_t not_full;
+    pthread_cond_t not_empty;
+} ClientsQueue;
+
 
