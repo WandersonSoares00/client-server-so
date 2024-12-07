@@ -8,3 +8,7 @@ int ordered_insert(Client *client, Darray *clients_arr);
 
 void dealoc_client(void *client);
 
+void print_queue(Darray *clients_arr);
+
+pid_t invoke_analyst();
+
