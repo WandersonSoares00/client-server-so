@@ -17,36 +17,49 @@
 void *servicer(void *args) {
     ClientsQueue *clients = ((ServicerArgs*) args)->clients;
     pid_t analyst_pid = ((ServicerArgs*) args)->analyst_pid;
+    int *reception_done = ((ServicerArgs*) args)->reception_thread_done;
     int cont = 0;
 
-    while (1) {
+    pthread_mutex_lock(&clients->mutex);
+    
+    while (darray_size(clients->data) == 0) {
+        pthread_cond_wait(&clients->not_empty, &clients->mutex);
+    }
+
+    sem_t *sem_atend = sem_open("/sem_atend", O_RDWR);
+    sem_t *sem_block = sem_open("/sem_block", O_RDWR);
+    
+    pthread_mutex_unlock(&clients->mutex);
+    
+    if(sem_atend == SEM_FAILED || sem_block == SEM_FAILED) {
+        perror("servicer - semaphore");
+        exit(EXIT_FAILURE);
+    }
+
+    while (1) {       
         pthread_mutex_lock(&clients->mutex);
 
         // Verficar se a fila veio vazia
-        while (clients->data->curr_size == 0) {
+        while (darray_size(clients->data) == 0) {
             pthread_cond_wait(&clients->not_empty, &clients->mutex);
         }
+            
+        Client *client = (Client *)darray_get_front(clients->data);        
 
-        // Esperar os semáfores sem_atend e sem_block
-        sem_t *sem1 = sem_open("/sem_atend", O_RDWR);
-
-        sem_t *sem2 = sem_open("/sem_block", O_RDWR);
-
-        if (sem1 != SEM_FAILED) sem_wait(sem1);
-
-        if (sem2 != SEM_FAILED) sem_wait(sem2);
-
-        Client *client = (Client *)darray_get_front(clients->data);
-        /*
-        if (client == NULL) {
-            sem_post(sem2);
-            continue;
-        }
-        */
         darray_pop_front(clients->data);
         pthread_mutex_unlock(&clients->mutex);
+
+        // Acordar cliente
+        if (kill(client->pid, SIGCONT) == -1) {
+            perror("wake client");
+            exit(EXIT_FAILURE);
+        }
+        // espera finalizar o atendimento
+        sem_wait(sem_atend);
+        sem_post(sem_atend);
+
+        //pthread_cond_signal(&clients->not_full);
         ++cont;
-        sem_post(sem2);
 
         time_t current_time = time(NULL);
         double waiting_time = difftime(current_time, client->t_coming);
@@ -56,11 +69,12 @@ void *servicer(void *args) {
             (waiting_time <= client->priority) ? "Satisfied" : "Unsatisfied";
         printf("%s\n", satisfaction);
 
-        // Acordar cliente
-        kill(client->pid, SIGCONT);
+        // Fecha o semáforo sem_block
+        sem_wait(sem_block);
 
         // Escrever PID no LNG
         FILE *file = fopen("LNG.txt", "a");
+
         if (file != NULL) {
             fprintf(file, "Client: %d\n", client->pid);
             fclose(file);
@@ -69,12 +83,32 @@ void *servicer(void *args) {
             exit(EXIT_FAILURE);
         }
 
+        sem_post(sem_block);
+
+        free(client); //
+
         // Acordar Analista
         if (cont == 10) {
             kill(analyst_pid, SIGCONT);
             cont = 0;
         }
+
+        if (darray_size(clients->data) == 0 && *reception_done) {
+            if (cont > 0) {
+                kill(analyst_pid, SIGCONT);
+            }
+            break;
+        }
     }
+    
+    waitpid(analyst_pid, NULL, WUNTRACED);
+    
+    sem_close(sem_atend);
+    sem_close(sem_block);
+
+    sem_unlink("/sem_atend");
+    sem_unlink("/sem_block");
+
     return NULL;
 }
 
@@ -126,24 +160,27 @@ void *reception(void *args) {
     ClientsQueue *queue = ((ReceptionArgs*) args)->clients;
     
     sem_t *sem1, *sem2;
-    if ((sem1 = sem_open("/sem_atend", O_CREAT, 0644, 1)) == SEM_FAILED) {
-        perror("sem_open failure");
+    if ((sem1 = sem_open("/sem_atend", O_CREAT, 0666, 1)) == SEM_FAILED) {
+        perror("sem_open - reception");
         exit(EXIT_FAILURE);
     }
 
-    if ((sem2 = sem_open("/sem_block", O_CREAT, 0644, 1)) == SEM_FAILED) {
-        perror("sem_open failure");
+    if ((sem2 = sem_open("/sem_block", O_CREAT, 0666, 1)) == SEM_FAILED) {
+        perror("sem_open - reception");
         exit(EXIT_FAILURE);
     }
 
     Client *client;
-  
 
     for (int i = 0; i < n_clients; i++) {
         client = create_client(x_time, queue);
         pthread_mutex_lock(&queue->mutex);
-        ordered_insert(client, queue->data);
+        
+        //ordered_insert(client, queue->data);
+        darray_push_back(queue->data, client);
+
         pthread_mutex_unlock(&queue->mutex);
+        pthread_cond_signal(&queue->not_empty);
     }
 
     if (n_clients == 0) {
@@ -157,6 +194,10 @@ void *reception(void *args) {
             pthread_mutex_unlock(&queue->mutex);
         }
     }
+
+    sem_close(sem1);
+    sem_close(sem2);
+    *((ReceptionArgs*) args)->reception_thread_done = 1;
 
     return NULL;
 }
