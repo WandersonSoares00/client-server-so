@@ -12,3 +12,5 @@ void print_queue(Darray *clients_arr);
 
 pid_t invoke_analyst();
 
+void print_resource_statistics();
+

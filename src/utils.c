@@ -1,6 +1,7 @@
 #include "../include/utils.h"
 #include <stdio.h>
 #include <sys/wait.h>
+#include <sys/resource.h>
 
 void dealoc_client(void *client) {}
 
@@ -46,5 +47,31 @@ pid_t invoke_analyst() {
         }
         return pid;
     }
+}
+
+void print_resource_statistics() {
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+
+    double user_time = usage.ru_utime.tv_sec + usage.ru_utime.tv_usec / 1e6;
+    double system_time = usage.ru_stime.tv_sec + usage.ru_stime.tv_usec / 1e6;
+    
+    printf("Tempo executando em user mode: %.6f s\n", user_time);
+    printf("Tempo executando em kernel mode: %.6f s\n", system_time);
+    printf("Block output operations: %ld times\n", usage.ru_oublock);
+    printf("Voluntary context switches: %ld times\n", usage.ru_nvcsw);
+    printf("Involuntary context switches: %ld times\n", usage.ru_nivcsw);
+    /*
+    struct rusage usage_children;
+    getrusage(RUSAGE_CHILDREN, &usage_children);
+
+    double children_user_time = usage_children.ru_utime.tv_sec + usage_children.ru_utime.tv_usec / 1e6;
+    double children_system_time = usage_children.ru_stime.tv_sec + usage_children.ru_stime.tv_usec / 1e6;
+
+    printf("Uso agregado dos processos filhos:\n");
+    printf("Tempo executando em user mode: %.6f s\n", children_user_time);
+    printf("Tempo executando em kernel mode: %.6f s\n", children_user_time);
+    printf("Block output operations: %ld times\n", usage_children.ru_oublock);
+    */
 }
 

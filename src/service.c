@@ -18,7 +18,12 @@ void *servicer(void *args) {
     ClientsQueue *clients = ((ServicerArgs*) args)->clients;
     pid_t analyst_pid = ((ServicerArgs*) args)->analyst_pid;
     int *reception_done = ((ServicerArgs*) args)->reception_thread_done;
-    int cont = 0;
+    int cont_clients = 0;
+    int clients_satisfied = 0;
+    clock_t t_begin, t_end;
+    ServiceReturnValues *ret = malloc(sizeof(ServiceReturnValues));
+    
+    t_begin = clock();
 
     pthread_mutex_lock(&clients->mutex);
     
@@ -56,27 +61,29 @@ void *servicer(void *args) {
         }
         // espera finalizar o atendimento
         sem_wait(sem_atend);
+        time_t current_time = time(NULL);
+        double waiting_time = difftime(current_time, client->t_coming);
         sem_post(sem_atend);
 
         //pthread_cond_signal(&clients->not_full);
-        ++cont;
+        ++cont_clients;
 
-        time_t current_time = time(NULL);
-        double waiting_time = difftime(current_time, client->t_coming);
-
-        // Retorna a satistafação do cliente
-        const char *satisfaction =
-            (waiting_time <= client->priority) ? "Satisfied" : "Unsatisfied";
-        printf("%s\n", satisfaction);
+        // Contabiliza a satistafação do cliente
+        if (waiting_time <= client->priority) {
+            ++clients_satisfied;
+        }
 
         // Fecha o semáforo sem_block
-        sem_wait(sem_block);
+        if (sem_wait(sem_block) == -1) {
+            perror("servicer - sem_block");
+            exit(EXIT_FAILURE);
+        }
 
         // Escrever PID no LNG
         FILE *file = fopen("LNG.txt", "a");
 
         if (file != NULL) {
-            fprintf(file, "Client: %d\n", client->pid);
+            fprintf(file, "%d\n", client->pid);
             fclose(file);
         } else {
             perror("Error to open file");
@@ -88,18 +95,19 @@ void *servicer(void *args) {
         free(client); //
 
         // Acordar Analista
-        if (cont == 10) {
+        if (cont_clients % 10 == 0) {
             kill(analyst_pid, SIGCONT);
-            cont = 0;
         }
 
         if (darray_size(clients->data) == 0 && *reception_done) {
-            if (cont > 0) {
+            if (cont_clients % 10 != 0) {
                 kill(analyst_pid, SIGCONT);
             }
             break;
         }
     }
+
+    t_end = clock();
     
     waitpid(analyst_pid, NULL, WUNTRACED);
     
@@ -108,8 +116,12 @@ void *servicer(void *args) {
 
     sem_unlink("/sem_atend");
     sem_unlink("/sem_block");
+    
+    ret->exec_time = t_end - t_begin;
+    ret->clients = cont_clients;
+    ret->clients_satisfied = clients_satisfied;
 
-    return NULL;
+    pthread_exit(ret);
 }
 
 Client *create_client(int x_time, ClientsQueue *queue) {

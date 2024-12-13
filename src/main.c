@@ -39,15 +39,22 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
     
+    ServiceReturnValues *ret;
+
     pthread_join(reception_id, NULL);
     reception_thread_done = 1;
-    pthread_join(servicer_id, NULL);
+    pthread_join(servicer_id, (void**)&ret);
     
     pthread_mutex_destroy(&clients_queue.mutex);
 
     darray_free(clients_queue.data);
 
     kill(analyst_pid, SIGKILL);
+    
+    printf("%d clientes recebidos e %d atendidos\n", n_clients == 0 ? ret->clients : n_clients, n_clients);
+    printf("Taxa de satisfação: %.2f\n",  (float) ret->clients_satisfied / ret->clients);
+    printf("Tempo total de execução: %ld clocks(%f s)\n", ret->exec_time, (double) ret->exec_time / CLOCKS_PER_SEC);
+    print_resource_statistics();
 
     return EXIT_SUCCESS;
 }

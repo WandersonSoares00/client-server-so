@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <signal.h>
+#include <time.h>
 
 #include "client.h"
 
@@ -21,6 +22,12 @@ typedef struct {
     ClientsQueue *clients;
     int *reception_thread_done;
 } ServicerArgs;
+
+typedef struct {
+    int clients;
+    int clients_satisfied;
+    clock_t exec_time;
+} ServiceReturnValues;
 
 void *servicer(void *args);
 
