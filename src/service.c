@@ -1,5 +1,6 @@
 #include <fcntl.h>
 #include <pthread.h>
+#include <sched.h>
 #include <semaphore.h>
 #include <signal.h>
 #include <stdio.h>
@@ -8,6 +9,8 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include <limits.h>
+#include <poll.h>
 
 #include "../include/client.h"
 #include "../include/darray.h"
@@ -18,11 +21,13 @@ void *servicer(void *args) {
     ClientsQueue *clients = ((ServicerArgs*) args)->clients;
     pid_t analyst_pid = ((ServicerArgs*) args)->analyst_pid;
     int *reception_done = ((ServicerArgs*) args)->reception_thread_done;
-    int cont_clients = 0;
+    int cont_clients = 0, fd = -1;
     int clients_satisfied = 0;
     clock_t t_begin, t_end;
     ServiceReturnValues *ret = malloc(sizeof(ServiceReturnValues));
-    
+    char file_name[PATH_MAX] = "LNG.XXXXXX";
+    FILE *file;
+
     t_begin = clock();
 
     pthread_mutex_lock(&clients->mutex);
@@ -80,9 +85,12 @@ void *servicer(void *args) {
         }
 
         // Escrever PID no LNG
-        FILE *file = fopen("LNG.txt", "a");
+        //char file_name[PATH_MAX] = "LNG.XXXXXX";
+        //fd = mkstemp(file_name);
+        //file = fdopen(fd, "a");
+        file = fopen(file_name, "a");
 
-        if (file != NULL) {
+        if (fd != -1 || file != NULL) {
             fprintf(file, "%d\n", client->pid);
             fclose(file);
         } else {
@@ -124,6 +132,7 @@ void *servicer(void *args) {
     pthread_exit(ret);
 }
 
+
 Client *create_client(int x_time, ClientsQueue *queue) {
     pid_t client_pid = fork();
     if (client_pid == 0) {
@@ -135,14 +144,14 @@ Client *create_client(int x_time, ClientsQueue *queue) {
         Client *client = malloc(sizeof(Client));
         client->pid = client_pid;
         client->t_coming = time(NULL);
-        
-        waitpid(client_pid, NULL, WUNTRACED);
 
         int demanda_fd = open("demanda.txt", O_RDONLY);
         if (demanda_fd == -1) {
             perror("client");
             exit(EXIT_FAILURE);
         }
+
+        waitpid(client_pid, NULL, WUNTRACED);
 
         int t_service;
         if (read(demanda_fd, &t_service, sizeof(t_service)) == -1) {
@@ -152,7 +161,7 @@ Client *create_client(int x_time, ClientsQueue *queue) {
         }
 
         close(demanda_fd);
-        remove("demanda.txt");
+        truncate("demanda.txt", 0);
         client->t_service = t_service;
 
         srand(time(NULL));
@@ -165,6 +174,7 @@ Client *create_client(int x_time, ClientsQueue *queue) {
         return client;
     }
 }
+
 
 void *reception(void *args) {
     int x_time = ((ReceptionArgs*) args)->x_time;
@@ -181,18 +191,22 @@ void *reception(void *args) {
         perror("sem_open - reception");
         exit(EXIT_FAILURE);
     }
+    
+    // cria um arquivo demanda
+    fclose(fopen("demanda.txt" ,"w"));
 
     Client *client;
 
     for (int i = 0; i < n_clients; i++) {
-        client = create_client(x_time, queue);
-        pthread_mutex_lock(&queue->mutex);
-        
-        //ordered_insert(client, queue->data);
-        darray_push_back(queue->data, client);
+        if ((client = create_client(x_time, queue))) {
+            pthread_mutex_lock(&queue->mutex);
+            
+            //ordered_insert(client, queue->data);
+            darray_push_back(queue->data, client);
 
-        pthread_mutex_unlock(&queue->mutex);
-        pthread_cond_signal(&queue->not_empty);
+            pthread_mutex_unlock(&queue->mutex);
+            pthread_cond_signal(&queue->not_empty);
+        }
     }
 
     if (n_clients == 0) {

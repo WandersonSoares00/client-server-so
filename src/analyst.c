@@ -6,20 +6,28 @@
 #include <semaphore.h>
 #include <fcntl.h>
 
-int main() {
+void handle_sigcont(int sig) { raise(SIGSTOP); }
+
+int main(int argc, char **argv) {
     FILE *file;
     char str[5];
     int count;
     
-    while (1) {
-        raise(SIGSTOP);
+    if (argc == 2) // no-analyst option
+        signal(SIGCONT, handle_sigcont);
 
-        sem_t *sem = sem_open("/sem_atend", O_RDWR);
+    raise(SIGSTOP);
+
+    sem_t *sem = sem_open("/sem_atend", O_RDWR);
         
-        if (sem != SEM_FAILED)
-            sem_wait(sem);
+    if (sem != SEM_FAILED)
+        sem_wait(sem);
+    else
+        perror("analyst sem_failed");
+   
+    while (1) {
         
-        if ((file = fopen("LNG.txt", "r")) == NULL) {
+        if ((file = fopen("LNG.XXXXXX", "r")) == NULL) {
             perror("analyst - LNG.txt");
             exit(EXIT_FAILURE);
         }
@@ -32,10 +40,12 @@ int main() {
         
         fclose(file);
 
-        remove("LNG.txt");
+        remove("LNG.XXXXXX");
 
         if (sem != SEM_FAILED)
             sem_post(sem);
+
+        raise(SIGSTOP);
     }
 }
 

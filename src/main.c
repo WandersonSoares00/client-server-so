@@ -4,20 +4,21 @@
 
 
 int main(int argc, char **argv) {
-    if (argc < 3) exit(EXIT_FAILURE);
+    struct options opts;
+
+    parse_arguments(argc, argv, &opts);
 
     pthread_t reception_id, servicer_id;
 
-    int n_clients = atoi(argv[1]);
-    int time = atoi(argv[2]);
     ClientsQueue clients_queue;
-    clients_queue.data = darray_init(n_clients, dealoc_client);
+    clients_queue.data = darray_init(opts.num_clients, dealoc_client);
 
     pthread_mutex_init(&clients_queue.mutex, NULL);
     pthread_cond_init(&clients_queue.not_empty, NULL);
     pthread_cond_init(&clients_queue.not_full, NULL);
 
-    pid_t analyst_pid = invoke_analyst();
+    remove("LNG.XXXXXX");
+    pid_t analyst_pid = invoke_analyst(opts.no_analyst);
     
     int reception_thread_done = 0;
 
@@ -26,7 +27,7 @@ int main(int argc, char **argv) {
     };
 
     ReceptionArgs reception_args = {
-        .n_clients = n_clients, .x_time = time, .clients = &clients_queue, .reception_thread_done = &reception_thread_done
+        .n_clients = opts.num_clients, .x_time = opts.max_wait_time, .clients = &clients_queue, .reception_thread_done = &reception_thread_done
     };
 
     if (pthread_create(&reception_id, NULL, reception, &reception_args) != 0) {
@@ -51,7 +52,7 @@ int main(int argc, char **argv) {
 
     kill(analyst_pid, SIGKILL);
     
-    printf("%d clientes recebidos e %d atendidos\n", n_clients == 0 ? ret->clients : n_clients, n_clients);
+    printf("%d clientes recebidos e %d atendidos\n", opts.num_clients == 0 ? ret->clients : opts.num_clients, opts.num_clients);
     printf("Taxa de satisfação: %.2f\n",  (float) ret->clients_satisfied / ret->clients);
     printf("Tempo total de execução: %ld clocks(%f s)\n", ret->exec_time, (double) ret->exec_time / CLOCKS_PER_SEC);
     print_resource_statistics();
