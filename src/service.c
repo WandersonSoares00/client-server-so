@@ -9,27 +9,32 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include <string.h>
 #include <limits.h>
-#include <poll.h>
+#include <errno.h>
+#include <aio.h>
 
 #include "../include/client.h"
 #include "../include/darray.h"
 #include "../include/utils.h"
 #include "../include/service.h"
 
+
 void *servicer(void *args) {
-    ClientsQueue *clients = ((ServicerArgs*) args)->clients;
-    pid_t analyst_pid = ((ServicerArgs*) args)->analyst_pid;
-    int *reception_done = ((ServicerArgs*) args)->reception_thread_done;
+    ServicerArgs *s_args = (ServicerArgs*) args;
+    ClientsQueue *clients = s_args->clients;
+    pid_t analyst_pid = s_args->analyst_pid;
+    int *reception_done = s_args->reception_thread_done;
+    
     int cont_clients = 0, fd = -1;
     int clients_satisfied = 0;
+    pid_t buff_lng[N_WAKE_ANALYST];
+
     clock_t t_begin, t_end;
     ServiceReturnValues *ret = malloc(sizeof(ServiceReturnValues));
-    char file_name[PATH_MAX] = "LNG.XXXXXX";
-    FILE *file;
 
     t_begin = clock();
-
+    
     pthread_mutex_lock(&clients->mutex);
     
     while (darray_size(clients->data) == 0) {
@@ -46,7 +51,7 @@ void *servicer(void *args) {
         exit(EXIT_FAILURE);
     }
 
-    while (1) {       
+    while (1) {
         pthread_mutex_lock(&clients->mutex);
 
         // Verficar se a fila veio vazia
@@ -65,55 +70,54 @@ void *servicer(void *args) {
             exit(EXIT_FAILURE);
         }
         // espera finalizar o atendimento
-        sem_wait(sem_atend);
+        waitpid(client->pid, NULL, WUNTRACED);
+        
         time_t current_time = time(NULL);
         double waiting_time = difftime(current_time, client->t_coming);
-        sem_post(sem_atend);
 
         //pthread_cond_signal(&clients->not_full);
+        pthread_mutex_lock(&clients->mutex);
+        
+        buff_lng[ret->clients % N_WAKE_ANALYST] = client->pid;
         ++cont_clients;
 
         // Contabiliza a satistafação do cliente
         if (waiting_time <= client->priority) {
             ++clients_satisfied;
         }
-
-        // Fecha o semáforo sem_block
-        if (sem_wait(sem_block) == -1) {
-            perror("servicer - sem_block");
-            exit(EXIT_FAILURE);
-        }
-
-        // Escrever PID no LNG
-        //char file_name[PATH_MAX] = "LNG.XXXXXX";
-        //fd = mkstemp(file_name);
-        //file = fdopen(fd, "a");
-        file = fopen(file_name, "a");
-
-        if (fd != -1 || file != NULL) {
-            fprintf(file, "%d\n", client->pid);
-            fclose(file);
-        } else {
-            perror("Error to open file");
-            exit(EXIT_FAILURE);
-        }
-
-        sem_post(sem_block);
+        pthread_mutex_unlock(&clients->mutex);
 
         free(client); //
 
         // Acordar Analista
-        if (cont_clients % 10 == 0) {
-            kill(analyst_pid, SIGCONT);
+        if (ret->clients % N_WAKE_ANALYST == 0) {
+            // Fecha o semáforo sem_block
+            if (sem_wait(sem_block) == -1) {
+                perror("servicer - sem_block");
+                exit(EXIT_FAILURE);
+            }
+
+            FILE *file = fopen("LNG", "ab");
+            if (file != NULL) {
+                fwrite(buff_lng, sizeof(pid_t), N_WAKE_ANALYST, file);
+                fclose(file);
+            } else {
+                perror("Error to open file");
+                exit(EXIT_FAILURE);
+            }
+
+            sem_post(sem_block);
+            kill(s_args->analyst_pid, SIGCONT);
         }
 
-        if (darray_size(clients->data) == 0 && *reception_done) {
-            if (cont_clients % 10 != 0) {
-                kill(analyst_pid, SIGCONT);
+        if (darray_size(clients->data) == 0 && *s_args->reception_thread_done) {
+            if (ret->clients % 10 > 0) {
+                kill(s_args->analyst_pid, SIGCONT);
             }
             break;
         }
     }
+
 
     t_end = clock();
     
@@ -128,7 +132,7 @@ void *servicer(void *args) {
     ret->exec_time = t_end - t_begin;
     ret->clients = cont_clients;
     ret->clients_satisfied = clients_satisfied;
-
+    
     pthread_exit(ret);
 }
 
@@ -152,17 +156,15 @@ Client *create_client(int x_time, ClientsQueue *queue) {
         }
 
         waitpid(client_pid, NULL, WUNTRACED);
-
-        int t_service;
-        if (read(demanda_fd, &t_service, sizeof(t_service)) == -1) {
+        
+        if (read(demanda_fd, &client->t_service, sizeof(client->t_service)) == -1) {
             perror("client");
             close(demanda_fd);
             exit(EXIT_FAILURE);
         }
-
+        
         close(demanda_fd);
         truncate("demanda.txt", 0);
-        client->t_service = t_service;
 
         srand(time(NULL));
         if (rand() % 2) {
@@ -180,7 +182,7 @@ void *reception(void *args) {
     int x_time = ((ReceptionArgs*) args)->x_time;
     int n_clients = ((ReceptionArgs*) args)->n_clients;
     ClientsQueue *queue = ((ReceptionArgs*) args)->clients;
-    
+
     sem_t *sem1, *sem2;
     if ((sem1 = sem_open("/sem_atend", O_CREAT, 0666, 1)) == SEM_FAILED) {
         perror("sem_open - reception");
@@ -210,13 +212,15 @@ void *reception(void *args) {
     }
 
     if (n_clients == 0) {
-        while (1) {
+        while (!((ReceptionArgs*)args)->stop) {
             client = create_client(x_time, queue);
             pthread_mutex_lock(&queue->mutex);
-            ordered_insert(client, queue->data);
+            //ordered_insert(client, queue->data);
+            darray_push_back(queue->data, client);
+            /*
             while (queue->data->curr_size == 100) {
                 pthread_cond_wait(&queue->not_full, &queue->mutex);
-            }
+            }*/
             pthread_mutex_unlock(&queue->mutex);
         }
     }

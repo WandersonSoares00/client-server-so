@@ -1,4 +1,5 @@
 #include "../include/utils.h"
+#include "../include/service.h"
 #include <stdio.h>
 #include <string.h>
 #include <sys/wait.h>
@@ -32,6 +33,24 @@ void print_queue(Darray *clients_arr) {
         c = clients_arr->data[i];
         printf("%li\n", c->t_coming);
     }
+}
+
+void* input_thread(void* arg) {
+    ReceptionArgs *r_args = (ReceptionArgs*)arg;
+
+    while (1) {
+        char input;
+        input = getchar();
+
+        if (input == 's' || input == 'S') {
+            r_args->stop = 1;
+            break;
+        }
+
+        while (getchar() != '\n');
+    }
+
+    return NULL;
 }
 
 pid_t invoke_analyst(int lazy) {

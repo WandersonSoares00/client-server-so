@@ -5,13 +5,16 @@
 #include <signal.h>
 #include <semaphore.h>
 #include <fcntl.h>
+#include "../include/utils.h"
 
-void handle_sigcont(int sig) { raise(SIGSTOP); }
+void handle_sigcont(int sig) {
+    remove("LNG");
+    raise(SIGSTOP);
+}
 
 int main(int argc, char **argv) {
     FILE *file;
     char str[5];
-    int count;
     
     if (argc == 2) // no-analyst option
         signal(SIGCONT, handle_sigcont);
@@ -27,20 +30,25 @@ int main(int argc, char **argv) {
    
     while (1) {
         
-        if ((file = fopen("LNG.XXXXXX", "r")) == NULL) {
+        if ((file = fopen("LNG", "rb")) == NULL) {
             perror("analyst - LNG.txt");
             exit(EXIT_FAILURE);
         }
         
-        count = 0;
-        while (fgets(str, 5, file) != NULL && count <= 10) {
-            fputs(str, stdout);
-            ++count;
+        int itens = 0;
+        pid_t pids[N_WAKE_ANALYST];
+        
+        if ((itens = fread(pids, sizeof(pid_t), N_WAKE_ANALYST, file)) < 0) {
+            exit(EXIT_FAILURE);
         }
         
         fclose(file);
 
-        remove("LNG.XXXXXX");
+        for (int i = 0; i < itens; ++i) {
+            printf("%d\n", pids[i]);
+        }
+
+        remove("LNG");
 
         if (sem != SEM_FAILED)
             sem_post(sem);

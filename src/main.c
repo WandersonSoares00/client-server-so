@@ -17,7 +17,6 @@ int main(int argc, char **argv) {
     pthread_cond_init(&clients_queue.not_empty, NULL);
     pthread_cond_init(&clients_queue.not_full, NULL);
 
-    remove("LNG.XXXXXX");
     pid_t analyst_pid = invoke_analyst(opts.no_analyst);
     
     int reception_thread_done = 0;
@@ -27,7 +26,7 @@ int main(int argc, char **argv) {
     };
 
     ReceptionArgs reception_args = {
-        .n_clients = opts.num_clients, .x_time = opts.max_wait_time, .clients = &clients_queue, .reception_thread_done = &reception_thread_done
+        .n_clients = opts.num_clients, .x_time = opts.max_wait_time, .clients = &clients_queue, .reception_thread_done = &reception_thread_done, .stop = 0
     };
 
     if (pthread_create(&reception_id, NULL, reception, &reception_args) != 0) {
@@ -40,6 +39,13 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
     
+    if (opts.num_clients == 0) {
+        if (pthread_create(&reception_id, NULL, reception, &reception_args) != 0) {
+            perror("Failed to create input worker");
+            exit(EXIT_FAILURE);
+        }
+    }
+
     ServiceReturnValues *ret;
 
     pthread_join(reception_id, NULL);
@@ -53,7 +59,7 @@ int main(int argc, char **argv) {
     kill(analyst_pid, SIGKILL);
     
     printf("%d clientes recebidos e %d atendidos\n", opts.num_clients == 0 ? ret->clients : opts.num_clients, opts.num_clients);
-    printf("Taxa de satisfação: %.2f\n",  (float) ret->clients_satisfied / ret->clients);
+    printf("Taxa de satisfação: %d / %d = %.4f\n",  ret->clients_satisfied, ret->clients, (float) ret->clients_satisfied / ret->clients);
     printf("Tempo total de execução: %ld clocks(%f s)\n", ret->exec_time, (double) ret->exec_time / CLOCKS_PER_SEC);
     print_resource_statistics();
 
