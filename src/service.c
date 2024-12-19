@@ -1,3 +1,4 @@
+#include <bits/time.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include <sched.h>
@@ -31,10 +32,11 @@ void *servicer(void *args) {
     pid_t buff_lng[N_WAKE_ANALYST];
 
     clock_t t_begin, t_end;
-    ServiceReturnValues *ret = malloc(sizeof(ServiceReturnValues));
 
-    t_begin = clock();
+    ServiceReturnValues *ret = malloc(sizeof(ServiceReturnValues));
     
+    t_begin = clock();
+
     pthread_mutex_lock(&clients->mutex);
     
     while (darray_size(clients->data) == 0) {
@@ -62,6 +64,7 @@ void *servicer(void *args) {
         Client *client = (Client *)darray_get_front(clients->data);        
 
         darray_pop_front(clients->data);
+        //darray_pop_back(clients->data);
         pthread_mutex_unlock(&clients->mutex);
 
         // Acordar cliente
@@ -75,10 +78,9 @@ void *servicer(void *args) {
         time_t current_time = time(NULL);
         double waiting_time = difftime(current_time, client->t_coming);
 
-        //pthread_cond_signal(&clients->not_full);
         pthread_mutex_lock(&clients->mutex);
         
-        buff_lng[ret->clients % N_WAKE_ANALYST] = client->pid;
+        buff_lng[cont_clients % N_WAKE_ANALYST] = client->pid;
         ++cont_clients;
 
         // Contabiliza a satistafação do cliente
@@ -90,7 +92,7 @@ void *servicer(void *args) {
         free(client); //
 
         // Acordar Analista
-        if (ret->clients % N_WAKE_ANALYST == 0) {
+        if (cont_clients % N_WAKE_ANALYST == 0) {
             // Fecha o semáforo sem_block
             if (sem_wait(sem_block) == -1) {
                 perror("servicer - sem_block");
@@ -111,7 +113,12 @@ void *servicer(void *args) {
         }
 
         if (darray_size(clients->data) == 0 && *s_args->reception_thread_done) {
-            if (ret->clients % 10 > 0) {
+            if (cont_clients > 0) {
+                sem_wait(sem_block);
+                FILE *file = fopen("LNG", "ab");
+                fwrite(buff_lng, sizeof(pid_t), cont_clients, file);
+                fclose(file);
+                sem_post(sem_block);
                 kill(s_args->analyst_pid, SIGCONT);
             }
             break;
@@ -120,7 +127,6 @@ void *servicer(void *args) {
 
 
     t_end = clock();
-    
     waitpid(analyst_pid, NULL, WUNTRACED);
     
     sem_close(sem_atend);
@@ -130,6 +136,7 @@ void *servicer(void *args) {
     sem_unlink("/sem_block");
     
     ret->exec_time = t_end - t_begin;
+
     ret->clients = cont_clients;
     ret->clients_satisfied = clients_satisfied;
     
@@ -202,10 +209,8 @@ void *reception(void *args) {
     for (int i = 0; i < n_clients; i++) {
         if ((client = create_client(x_time, queue))) {
             pthread_mutex_lock(&queue->mutex);
-            
             //ordered_insert(client, queue->data);
             darray_push_back(queue->data, client);
-
             pthread_mutex_unlock(&queue->mutex);
             pthread_cond_signal(&queue->not_empty);
         }
@@ -213,15 +218,17 @@ void *reception(void *args) {
 
     if (n_clients == 0) {
         while (!((ReceptionArgs*)args)->stop) {
-            client = create_client(x_time, queue);
-            pthread_mutex_lock(&queue->mutex);
-            //ordered_insert(client, queue->data);
-            darray_push_back(queue->data, client);
-            /*
-            while (queue->data->curr_size == 100) {
-                pthread_cond_wait(&queue->not_full, &queue->mutex);
-            }*/
-            pthread_mutex_unlock(&queue->mutex);
+            if((client = create_client(x_time, queue))) {
+                pthread_mutex_lock(&queue->mutex);
+                //ordered_insert(client, queue->data);
+                darray_push_back(queue->data, client);
+                while (darray_size(queue->data) >= 100) {
+                    pthread_mutex_unlock(&queue->mutex);
+                    pthread_cond_signal(&queue->not_empty);
+                }
+                pthread_mutex_unlock(&queue->mutex);
+                pthread_cond_signal(&queue->not_empty);
+            }
         }
     }
 

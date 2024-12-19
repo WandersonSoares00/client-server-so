@@ -15,7 +15,6 @@ typedef struct {
 typedef struct {
     Darray *data;
     pthread_mutex_t mutex;
-    pthread_cond_t not_full;
     pthread_cond_t not_empty;
 } ClientsQueue;
 

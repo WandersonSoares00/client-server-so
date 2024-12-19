@@ -31,7 +31,7 @@ int main(int argc, char **argv) {
     while (1) {
         
         if ((file = fopen("LNG", "rb")) == NULL) {
-            perror("analyst - LNG.txt");
+            perror("analyst - LNG");
             exit(EXIT_FAILURE);
         }
         
@@ -43,7 +43,6 @@ int main(int argc, char **argv) {
         }
         
         fclose(file);
-
         for (int i = 0; i < itens; ++i) {
             printf("%d\n", pids[i]);
         }

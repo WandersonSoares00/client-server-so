@@ -23,6 +23,7 @@ typedef struct {
     int clients;
     int clients_satisfied;
     clock_t exec_time;
+    long milliseconds;
 } ServiceReturnValues;
 
 typedef struct {
