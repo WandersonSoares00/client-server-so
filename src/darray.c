@@ -80,9 +80,15 @@ inline void *darray_get_front(Darray *arr) {
     return NULL;
 }
 
+inline void *darray_get_back(Darray *arr) {
+    if (arr->last_data > 0)
+        return arr->data[arr->last_data - 1];
+    return NULL;
+}
+
 inline void darray_pop_back(Darray *arr) {
-    if (arr->last_data > arr->first_data) {
-        (*arr->dealloc_member)(arr->data[arr->last_data--]);
+    if (arr->last_data > arr->first_data && arr->last_data > 0) {
+        (*arr->dealloc_member)(arr->data[--arr->last_data]);
     }
 }
 

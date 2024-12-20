@@ -14,9 +14,9 @@
 #include <limits.h>
 #include <errno.h>
 #include <aio.h>
+#include <assert.h>
 
 #include "../include/client.h"
-#include "../include/darray.h"
 #include "../include/utils.h"
 #include "../include/service.h"
 
@@ -25,21 +25,21 @@ void *servicer(void *args) {
     ServicerArgs *s_args = (ServicerArgs*) args;
     ClientsQueue *clients = s_args->clients;
     pid_t analyst_pid = s_args->analyst_pid;
-    int *reception_done = s_args->reception_thread_done;
     
-    int cont_clients = 0, fd = -1;
+    int cont_clients = 0;
     int clients_satisfied = 0;
-    pid_t buff_lng[N_WAKE_ANALYST];
+    pid_t buff_lng[N_WAKE_ANALYST] = {0};
 
     clock_t t_begin, t_end;
 
-    ServiceReturnValues *ret = malloc(sizeof(ServiceReturnValues));
-    
+    ServiceReturnValues *ret = (ServiceReturnValues*) malloc(sizeof(ServiceReturnValues));
+    assert (ret != NULL);
+
     t_begin = clock();
 
     pthread_mutex_lock(&clients->mutex);
     
-    while (darray_size(clients->data) == 0) {
+    while (queue_size(clients->q) == 0) {
         pthread_cond_wait(&clients->not_empty, &clients->mutex);
     }
 
@@ -52,20 +52,22 @@ void *servicer(void *args) {
         perror("servicer - semaphore");
         exit(EXIT_FAILURE);
     }
+    
+    Client *client = NULL;
 
     while (1) {
         pthread_mutex_lock(&clients->mutex);
 
         // Verficar se a fila veio vazia
-        while (darray_size(clients->data) == 0) {
+        while (queue_size(clients->q) == 0) {
             pthread_cond_wait(&clients->not_empty, &clients->mutex);
         }
             
-        Client *client = (Client *)darray_get_front(clients->data);        
+        client = (Client *)dequeue(clients->q);
 
-        darray_pop_front(clients->data);
-        //darray_pop_back(clients->data);
         pthread_mutex_unlock(&clients->mutex);
+
+        pthread_cond_signal(&clients->not_full);
 
         // Acordar cliente
         if (kill(client->pid, SIGCONT) == -1) {
@@ -77,9 +79,7 @@ void *servicer(void *args) {
         
         time_t current_time = time(NULL);
         double waiting_time = difftime(current_time, client->t_coming);
-
-        pthread_mutex_lock(&clients->mutex);
-        
+ 
         buff_lng[cont_clients % N_WAKE_ANALYST] = client->pid;
         ++cont_clients;
 
@@ -87,7 +87,6 @@ void *servicer(void *args) {
         if (waiting_time <= client->priority) {
             ++clients_satisfied;
         }
-        pthread_mutex_unlock(&clients->mutex);
 
         free(client); //
 
@@ -108,17 +107,17 @@ void *servicer(void *args) {
                 exit(EXIT_FAILURE);
             }
 
-            sem_post(sem_block);
+            assert(sem_post(sem_block) != -1);
             kill(s_args->analyst_pid, SIGCONT);
         }
 
-        if (darray_size(clients->data) == 0 && *s_args->reception_thread_done) {
+        if (queue_size(clients->q) == 0 && *s_args->reception_thread_done) {
             if (cont_clients > 0) {
-                sem_wait(sem_block);
+                assert(sem_wait(sem_block) != -1);
                 FILE *file = fopen("LNG", "ab");
                 fwrite(buff_lng, sizeof(pid_t), cont_clients, file);
                 fclose(file);
-                sem_post(sem_block);
+                assert(sem_post(sem_block) != -1);
                 kill(s_args->analyst_pid, SIGCONT);
             }
             break;
@@ -144,7 +143,7 @@ void *servicer(void *args) {
 }
 
 
-Client *create_client(int x_time, ClientsQueue *queue) {
+Client *create_client(int x_time) {
     pid_t client_pid = fork();
     if (client_pid == 0) {
         char *argv[] = {"./client", NULL};
@@ -152,7 +151,9 @@ Client *create_client(int x_time, ClientsQueue *queue) {
         perror("client");
         exit(EXIT_FAILURE);
     } else {
-        Client *client = malloc(sizeof(Client));
+        Client *client = (Client*) malloc(sizeof(Client));
+        assert(client != NULL);
+
         client->pid = client_pid;
         client->t_coming = time(NULL);
 
@@ -202,15 +203,18 @@ void *reception(void *args) {
     }
     
     // cria um arquivo demanda
-    fclose(fopen("demanda.txt" ,"w"));
+    FILE *file_demanda = fopen("demanda.txt" ,"w");
+    assert(file_demanda != NULL);
+    fclose(file_demanda);
 
-    Client *client;
+    Client *client = NULL;
 
     for (int i = 0; i < n_clients; i++) {
-        if ((client = create_client(x_time, queue))) {
+        if ((client = create_client(x_time))) {
             pthread_mutex_lock(&queue->mutex);
-            //ordered_insert(client, queue->data);
-            darray_push_back(queue->data, client);
+            while (queue_full(queue->q))
+                pthread_cond_wait(&queue->not_full, &queue->mutex);
+            enqueue(queue->q, (void*) client);
             pthread_mutex_unlock(&queue->mutex);
             pthread_cond_signal(&queue->not_empty);
         }
@@ -218,11 +222,12 @@ void *reception(void *args) {
 
     if (n_clients == 0) {
         while (!((ReceptionArgs*)args)->stop) {
-            if((client = create_client(x_time, queue))) {
+            if((client = create_client(x_time))) {
                 pthread_mutex_lock(&queue->mutex);
-                //ordered_insert(client, queue->data);
-                darray_push_back(queue->data, client);
-                while (darray_size(queue->data) >= 100) {
+                while (queue_full(queue->q))
+                    pthread_cond_wait(&queue->not_full, &queue->mutex);
+                enqueue(queue->q, (void*) client);
+                while (queue_size(queue->q) >= 100) {
                     pthread_mutex_unlock(&queue->mutex);
                     pthread_cond_signal(&queue->not_empty);
                 }
@@ -232,8 +237,8 @@ void *reception(void *args) {
         }
     }
 
-    sem_close(sem1);
-    sem_close(sem2);
+    assert(sem_close(sem1) != -1);
+    assert(sem_close(sem2) != -1);
     *((ReceptionArgs*) args)->reception_thread_done = 1;
 
     return NULL;

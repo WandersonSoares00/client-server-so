@@ -5,7 +5,7 @@
 #include <sys/wait.h>
 #include <sys/resource.h>
 
-void dealoc_client(void *client) {}
+void dealoc_client(void *client) { free(client); }
 
 int ordered_insert(Client *client, Darray *clients_arr) {
     if (darray_size(clients_arr) == clients_arr->curr_size) {
@@ -25,14 +25,6 @@ int ordered_insert(Client *client, Darray *clients_arr) {
     clients_arr->data[i + 1] = client;
     ++clients_arr->last_data;
     return 0;
-}
-
-void print_queue(Darray *clients_arr) {
-    Client *c;
-    for (int i = clients_arr->first_data; i < clients_arr->last_data; ++i) {
-        c = clients_arr->data[i];
-        printf("%li\n", c->t_coming);
-    }
 }
 
 void* input_thread(void* arg) {
@@ -102,7 +94,7 @@ void print_resource_statistics() {
 }
 
 void print_help() {
-    fprintf(stderr, "Erro: As opções --N e --X são obrigatórias.\n");
+    fprintf(stderr, "Erro: As opções -n e -x são obrigatórias.\n");
 }
 
 void parse_arguments(int argc, char *argv[], struct options *opts) {
@@ -114,18 +106,18 @@ void parse_arguments(int argc, char *argv[], struct options *opts) {
     opts->no_analyst = 0;
 
     struct option long_options[] = {
-        {"N", required_argument, 0, 'N'},
-        {"X", required_argument, 0, 'X'},
+        {"n", required_argument, 0, 'n'},
+        {"x", required_argument, 0, 'x'},
         {"no-analyst", no_argument, 0, 0},
         {0, 0, 0, 0}
     };
 
-    while ((opt = getopt_long(argc, argv, "N:X:", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "n:x:", long_options, &option_index)) != -1) {
         switch (opt) {
-            case 'N':
+            case 'n':
                 opts->num_clients = atoi(optarg);
                 break;
-            case 'X':
+            case 'x':
                 opts->max_wait_time = atoi(optarg);
                 break;
             case 0:

@@ -11,11 +11,11 @@ int main(int argc, char **argv) {
     pthread_t reception_id, servicer_id, input_id;
 
     ClientsQueue clients_queue;
-    clients_queue.data = darray_init(1, dealoc_client);
-    //clients_queue.data = darray_init(opts.num_clients, dealoc_client);
+    clients_queue.q = queue_init(128);
 
     pthread_mutex_init(&clients_queue.mutex, NULL);
     pthread_cond_init(&clients_queue.not_empty, NULL);
+    pthread_cond_init(&clients_queue.not_full, NULL);
 
     pid_t analyst_pid = invoke_analyst(opts.no_analyst);
     
@@ -44,25 +44,26 @@ int main(int argc, char **argv) {
             perror("Failed to create input worker");
             exit(EXIT_FAILURE);
         }
+        pthread_join(input_id, NULL);
     }
 
-    ServiceReturnValues *ret;
-
-    pthread_join(input_id, NULL);
+    ServiceReturnValues *ret = NULL;
     pthread_join(reception_id, NULL);
     reception_thread_done = 1;
     pthread_join(servicer_id, (void**)&ret);
     
     pthread_mutex_destroy(&clients_queue.mutex);
 
-    darray_free(clients_queue.data);
-
+    queue_free(clients_queue.q);
+    
     kill(analyst_pid, SIGKILL);
     
     printf("%d clientes recebidos e %d atendidos\n", opts.num_clients == 0 ? ret->clients : opts.num_clients, ret->clients);
     printf("Taxa de satisfação: %d / %d = %.4f\n",  ret->clients_satisfied, ret->clients, (float) ret->clients_satisfied / ret->clients);
     printf("Tempo total de execução: %ld clocks(%f s)\n", ret->exec_time, (double) ret->exec_time / CLOCKS_PER_SEC);
     print_resource_statistics();
+
+    free(ret);
 
     return EXIT_SUCCESS;
 }

@@ -14,8 +14,7 @@ void handle_sigcont(int sig) {
 
 int main(int argc, char **argv) {
     FILE *file;
-    char str[5];
-    
+        
     if (argc == 2) // no-analyst option
         signal(SIGCONT, handle_sigcont);
 
