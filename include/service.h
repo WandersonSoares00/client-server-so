@@ -10,6 +10,8 @@
 
 #include "darray.h"
 
+#include "queue.h"
+
 #include "utils.h"
 
 typedef struct {

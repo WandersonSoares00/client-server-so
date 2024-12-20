@@ -26,6 +26,8 @@ int darray_push_back(Darray *arr, void *element);
 
 void *darray_get_front(Darray *arr);
 
+void *darray_get_back(Darray *arr);
+
 void darray_pop_back(Darray *arr);
 
 void darray_pop_front(Darray *arr);
